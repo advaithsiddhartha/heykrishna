@@ -137,4 +137,5 @@ def ask():
 # Run App
 # -------------------
 if __name__ == "__main__":
-    app.run(debug=True, port=7100)
+    port = int(os.environ.get("PORT", 7100))  # fallback for local
+    app.run(host="0.0.0.0", port=port, debug=True)
