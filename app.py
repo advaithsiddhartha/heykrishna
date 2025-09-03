@@ -16,13 +16,11 @@ app = Flask(__name__)
 load_dotenv()
 
 # -------------------
-# Load FAISS + Gita Data
+# Lazy-loaded globals
 # -------------------
-index = faiss.read_index("gita_index.faiss")
-with open("gita_verses.json", "r", encoding="utf-8") as f:
-    data = json.load(f)
-
-model = SentenceTransformer("paraphrase-MiniLM-L6-v2")
+model = None
+index = None
+data = None
 
 # -------------------
 # API Key Rotation Setup
@@ -31,7 +29,6 @@ api_keys_str = os.getenv("API_KEYS", "")
 API_KEYS = [k.strip() for k in api_keys_str.split(",") if k.strip()]
 if not API_KEYS:
     raise ValueError("No API keys found. Please set API_KEYS in your .env or hosting environment.")
-
 key_cycle = itertools.cycle(API_KEYS)
 
 def get_next_model(model_name: str):
@@ -40,9 +37,23 @@ def get_next_model(model_name: str):
     return genai.GenerativeModel(model_name)
 
 # -------------------
+# Load resources lazily
+# -------------------
+def load_resources():
+    global model, index, data
+    if model is None:
+        model = SentenceTransformer("paraphrase-MiniLM-L6-v2")
+    if index is None:
+        index = faiss.read_index("gita_index.faiss")
+    if data is None:
+        with open("gita_verses.json", "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+# -------------------
 # Utility: Search Verses
 # -------------------
 def find_relevant_verses(query, k=3):
+    load_resources()
     query_embedding = model.encode([query], convert_to_numpy=True)
     distances, indices = index.search(query_embedding, k)
     return [data[i] for i in indices[0]]
@@ -82,7 +93,7 @@ def ask():
 
         {name}'s Question:
         {query}
-
+        
         Your task:
         1. Provide a compassionate, mentor-like answer appropriate for a {age}-year-old.
         2. Use all the three verses given and Whenever quoting verses:
@@ -98,6 +109,7 @@ def ask():
         {results}
 
         IMPORTANT:
+        - MOST IMPORTANTLY , KEEP THE LANGUAGE VERY VERY SIMPLE WITH NO COMPLEX WORDS , ENGLISH , TELUGU AND HINDI so that everyone can understand , dont use complex words
         - Output the response in **HTML format**.
         - Do NOT use Markdown-style asterisks. Use <b> tags for bold text.
         - Include Sanskrit and translation for every verse.
