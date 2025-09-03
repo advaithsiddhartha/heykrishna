@@ -7,7 +7,6 @@ import random
 import itertools
 import os
 from dotenv import load_dotenv
-import psutil
 import gc
 
 # -------------------
