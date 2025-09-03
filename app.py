@@ -16,11 +16,14 @@ app = Flask(__name__)
 load_dotenv()
 
 # -------------------
-# Lazy-loaded globals
+# Load FAISS + Gita Data
 # -------------------
-model = None
-index = None
-data = None
+index = faiss.read_index("gita_index.faiss")
+with open("gita_verses.json", "r", encoding="utf-8") as f:
+    data = json.load(f)
+
+# Use lighter embedding model if RAM issues → try "all-MiniLM-L6-v2"
+model = SentenceTransformer("paraphrase-MiniLM-L6-v2")
 
 # -------------------
 # API Key Rotation Setup
@@ -37,23 +40,9 @@ def get_next_model(model_name: str):
     return genai.GenerativeModel(model_name)
 
 # -------------------
-# Load resources lazily
-# -------------------
-def load_resources():
-    global model, index, data
-    if model is None:
-        model = SentenceTransformer("paraphrase-MiniLM-L6-v2")
-    if index is None:
-        index = faiss.read_index("gita_index.faiss")
-    if data is None:
-        with open("gita_verses.json", "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-# -------------------
 # Utility: Search Verses
 # -------------------
 def find_relevant_verses(query, k=3):
-    load_resources()
     query_embedding = model.encode([query], convert_to_numpy=True)
     distances, indices = index.search(query_embedding, k)
     return [data[i] for i in indices[0]]
@@ -139,8 +128,7 @@ def ask():
     })
 
 # -------------------
-# Run App
+# Vercel Entry (no debug/port here)
 # -------------------
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+# Flask app must be exposed as `app`
+
