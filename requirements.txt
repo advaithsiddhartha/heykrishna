@@ -6,3 +6,4 @@ huggingface-hub
 google-generativeai
 python-dotenv
 gunicorn
+gc
