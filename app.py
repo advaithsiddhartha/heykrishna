@@ -8,30 +8,36 @@ import random
 import itertools
 import os
 from dotenv import load_dotenv
+from functools import lru_cache
+import gc
 
-# -------------------
-# Setup Flask + dotenv
-# -------------------
 app = Flask(__name__)
 load_dotenv()
 
 # -------------------
-# Load FAISS + Gita Data
+# Globals (lazy load)
 # -------------------
-index = faiss.read_index("gita_index.faiss")
-with open("gita_verses.json", "r", encoding="utf-8") as f:
-    data = json.load(f)
+_model = None
+_index = None
+_data = None
 
-# Use lighter embedding model if RAM issues → try "all-MiniLM-L6-v2"
-model = SentenceTransformer("paraphrase-MiniLM-L6-v2")
+def load_resources():
+    global _model, _index, _data
+    if _model is None:
+        _model = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
+    if _index is None:
+        _index = faiss.read_index("gita_index.faiss")
+    if _data is None:
+        with open("gita_verses.json", "r", encoding="utf-8") as f:
+            _data = json.load(f)
 
 # -------------------
-# API Key Rotation Setup
+# API Key Rotation
 # -------------------
 api_keys_str = os.getenv("API_KEYS", "")
 API_KEYS = [k.strip() for k in api_keys_str.split(",") if k.strip()]
 if not API_KEYS:
-    raise ValueError("No API keys found. Please set API_KEYS in your .env or hosting environment.")
+    raise ValueError("No API keys found. Set API_KEYS in your .env.")
 key_cycle = itertools.cycle(API_KEYS)
 
 def get_next_model(model_name: str):
@@ -40,26 +46,29 @@ def get_next_model(model_name: str):
     return genai.GenerativeModel(model_name)
 
 # -------------------
-# Utility: Search Verses
+# Query Encoding & Search
 # -------------------
+@lru_cache(maxsize=500)
+def encode_query(query: str):
+    load_resources()
+    return _model.encode([query], convert_to_numpy=True)
+
 def find_relevant_verses(query, k=3):
-    query_embedding = model.encode([query], convert_to_numpy=True)
-    distances, indices = index.search(query_embedding, k)
-    return [data[i] for i in indices[0]]
+    embedding = encode_query(query)
+    distances, indices = _index.search(embedding, k)
+    return [_data[i] for i in indices[0]]
 
 # -------------------
 # Routes
 # -------------------
 @app.route("/")
 def home():
-    random_num = random.randint(1, 15)
-    image_file = f"images/{random_num}.jpg"
+    image_file = f"images/{random.randint(1,15)}.jpg"
     return render_template("index.html", image_file=image_file)
 
 @app.route("/ask-page")
 def ask_page():
-    random_num = random.randint(1, 15)
-    image_file = f"images/{random_num}.jpg"
+    image_file = f"images/{random.randint(1,15)}.jpg"
     return render_template("ask.html", image_file=image_file)
 
 @app.route("/tech")
@@ -73,62 +82,34 @@ def ask():
     age = req.get("age", "unknown")
     query = req.get("query", "")
     language = req.get("language", "English")
-    mode = req.get("mode", "normal")  # normal / deep
+    mode = req.get("mode", "normal")
 
     results = find_relevant_verses(query)
 
     prompt = f"""
-        You are Lord Krishna, giving guidance to {name}, who is {age} years old.
+You are Lord Krishna, guiding {name}, age {age}.
+Question: {query}
+Use these verses: {results}
+Instructions:
+- Very simple language (English + Hindi + Telugu).
+- Quote verses with <b> tags for Sanskrit & translation.
+- Space between verses.
+- Answer fully in {language}.
+- No bullet points. End with: "I, Krishna, am always with you. Be strong."
+"""
 
-        {name}'s Question:
-        {query}
-        
-        Your task:
-        1. Provide a compassionate, mentor-like answer appropriate for a {age}-year-old.
-        2. Use all the three verses given and Whenever quoting verses:
-        - Wrap the Sanskrit verse in <b> tags.
-        - Wrap the translation in <b> tags as well.
-        - Provide an explanation after each verse.
-        3. Format the answer in paragraphs with spacing.
-        4. Integrate verses contextually within the answer.
-        5. At the end, optionally summarize the key points.
-
-        Use a warm, divine, mentor tone.
-        Knowledge base to reference (relevant slokas from Bhagavad Gita):
-        {results}
-
-        IMPORTANT:
-        - MOST IMPORTANTLY , KEEP THE LANGUAGE VERY VERY SIMPLE WITH NO COMPLEX WORDS , ENGLISH , TELUGU AND HINDI so that everyone can understand , dont use complex words
-        - Output the response in **HTML format**.
-        - Do NOT use Markdown-style asterisks. Use <b> tags for bold text.
-        - Include Sanskrit and translation for every verse.
-        - Maintain spacing between slokas.
-        - Answer fully in {language}, go detailed and nicely.
-        - No need of bullet points or summaries. End with a divine closing statement like:
-          "I, Krishna, am always with you. Be strong."
-    """
-
-    # Select model with rotation
-    if mode == "deep":
-        llm = get_next_model("gemini-2.5-pro")
-    else:
-        llm = get_next_model("gemini-2.5-flash")
-
+    llm = get_next_model("gemini-2.5-pro" if mode=="deep" else "gemini-2.5-flash")
     response = llm.generate_content(prompt)
+    krishna_response = response.text.strip("```html").strip("```")
+    del response
+    gc.collect()
 
-    krishna_response = response.text
-    if krishna_response.startswith("```html"):
-        krishna_response = krishna_response[7:]
-    if krishna_response.endswith("```"):
-        krishna_response = krishna_response[:-3]
-
-    return jsonify({
-        "response": krishna_response,
-        "verses": results
-    })
+    return jsonify({"response": krishna_response, "verses": results})
 
 # -------------------
-# Vercel Entry (no debug/port here)
+# Run App
 # -------------------
-# Flask app must be exposed as `app`
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
 
