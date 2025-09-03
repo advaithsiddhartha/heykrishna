@@ -1,9 +1,8 @@
 flask
-faiss-cpu
+faiss-cpu>=1.11.0
 numpy
-sentence-transformers
-huggingface-hub
+sentence-transformers==2.2.2
+huggingface-hub==0.16.4
 google-generativeai
 python-dotenv
 gunicorn
-
