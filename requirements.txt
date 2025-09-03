@@ -1,7 +1,9 @@
-Flask==2.3.2
+flask
+faiss-cpu>=1.11.0
+numpy
 sentence-transformers==2.2.2
-faiss-cpu
+huggingface-hub==0.16.4
 google-generativeai
 python-dotenv
 gunicorn
-numpy
+
