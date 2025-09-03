@@ -75,6 +75,10 @@ def ask_page():
 def tech():
     return render_template("tech.html")
 
+@app.route("/health")
+def health():
+    return "App is running!"
+
 @app.route("/ask", methods=["POST"])
 def ask():
     req = request.json
@@ -112,4 +116,6 @@ Instructions:
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
+
 
