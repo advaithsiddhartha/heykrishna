@@ -1,8 +1,8 @@
-flask==2.3.2
-faiss-cpu>=1.11.0
-numpy==1.26.0
-sentence-transformers==2.2.2
-huggingface-hub==0.16.4
+flask
+faiss-cpu
+numpy
+sentence-transformers
+huggingface-hub
 google-generativeai
 python-dotenv
-gunicorn==21.2.0
+gunicorn
