@@ -18,7 +18,7 @@ load_dotenv()
 # -------------------
 # Load FAISS + Gita Data
 # -------------------
-index = faiss.read_index("gita_index_gemini.faiss")
+index = faiss.read_index("gita_index.faiss")
 with open("gita_verses.json", "r", encoding="utf-8") as f:
     data = json.load(f)
 
