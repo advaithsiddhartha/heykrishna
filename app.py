@@ -81,16 +81,17 @@ def health():
 
 @app.route("/ask", methods=["POST"])
 def ask():
-    req = request.json
-    name = req.get("name", "Friend")
-    age = req.get("age", "unknown")
-    query = req.get("query", "")
-    language = req.get("language", "English")
-    mode = req.get("mode", "normal")
+    try:
+        req = request.json
+        name = req.get("name", "Friend")
+        age = req.get("age", "unknown")
+        query = req.get("query", "")
+        language = req.get("language", "English")
+        mode = req.get("mode", "normal")
 
-    results = find_relevant_verses(query)
+        results = find_relevant_verses(query)
 
-    prompt = f"""
+        prompt = f"""
 You are Lord Krishna, guiding {name}, age {age}.
 Question: {query}
 Use these verses: {results}
@@ -102,13 +103,21 @@ Instructions:
 - No bullet points. End with: "I, Krishna, am always with you. Be strong."
 """
 
-    llm = get_next_model("gemini-2.5-pro" if mode=="deep" else "gemini-2.5-flash")
-    response = llm.generate_content(prompt)
-    krishna_response = response.text.strip("```html").strip("```")
-    del response
-    gc.collect()
+        llm = get_next_model("gemini-2.5-pro" if mode=="deep" else "gemini-2.5-flash")
+        response = llm.generate_content(prompt)
 
-    return jsonify({"response": krishna_response, "verses": results})
+        krishna_response = response.text or ""
+        krishna_response = krishna_response.strip("```html").strip("```")
+
+        del response
+        gc.collect()
+
+        return jsonify({"response": krishna_response, "verses": results})
+
+    except Exception as e:
+        # Log error in Render dashboard
+        print("Error in /ask:", e)
+        return jsonify({"error": str(e)}), 500
 
 # -------------------
 # Run App
@@ -116,6 +125,5 @@ Instructions:
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-
 
 
