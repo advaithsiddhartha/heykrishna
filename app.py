@@ -15,58 +15,65 @@ import gc
 app = Flask(__name__)
 load_dotenv()
 
-index = faiss.read_index("gita_index_gemini.faiss")
-with open("gita_verses.json", "r", encoding="utf-8") as f:
-    data = json.load(f)
-
-
+# -------------------
+# Load API Keys
+# -------------------
 api_keys_str = os.getenv("API_KEYS", "")
 API_KEYS = [k.strip() for k in api_keys_str.split(",") if k.strip()]
 if not API_KEYS:
-    raise ValueError("No API keys found. Please set API_KEYS in your .env or hosting environment.")
+    raise ValueError("No API keys found. Please set API_KEYS in your environment.")
 key_cycle = itertools.cycle(API_KEYS)
 
 def get_next_model(model_name: str):
     api_key = next(key_cycle)
-    genai.configure(api_key=api_key)  # <-- Use rotating key instead of GOOGLE_API_KEY
+    genai.configure(api_key=api_key)
     return genai.GenerativeModel(model_name)
 
+# -------------------
+# Lazy-load FAISS
+# -------------------
+index = None
+data = None
 
-with open("gita_verses.json", "r", encoding="utf-8") as f:
-    data = json.load(f)
-
-if os.path.exists("gita_index.faiss"):
-    try:
-        index = faiss.read_index("gita_index.faiss")
-        print("Loaded FAISS index from file ✅")
-    except Exception as e:
-        print("Error loading FAISS, rebuilding...", e)
-        texts = [d["english"] for d in data]
-        embeddings = [genai.embed_content(model="models/embedding-001", content=t)["embedding"] for t in texts]
-        embeddings = np.array(embeddings, dtype="float32")
-        index = faiss.IndexFlatL2(embeddings.shape[1])
-        index.add(embeddings)
-        faiss.write_index(index, "gita_index.faiss")
-else:
-    print("No FAISS file, building index...")
-    texts = [d["english"] for d in data]
+def build_index(data_list):
+    texts = [d["english"] for d in data_list]
     embeddings = [genai.embed_content(model="models/embedding-001", content=t)["embedding"] for t in texts]
     embeddings = np.array(embeddings, dtype="float32")
-    index = faiss.IndexFlatL2(embeddings.shape[1])
-    index.add(embeddings)
-    faiss.write_index(index, "gita_index.faiss")
+    idx = faiss.IndexFlatL2(embeddings.shape[1])
+    idx.add(embeddings)
+    faiss.write_index(idx, "gita_index_gemini.faiss")
+    return idx
 
+def get_faiss_index():
+    global index, data
+    if index is not None and data is not None:
+        return index, data
+
+    with open("gita_verses.json", "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    faiss_path = "gita_index_gemini.faiss"
+
+    if os.path.exists(faiss_path):
+        try:
+            index = faiss.read_index(faiss_path)
+            print("Loaded FAISS index from file ✅")
+        except Exception as e:
+            print("Error loading FAISS, rebuilding...", e)
+            index = build_index(data)
+    else:
+        print("No FAISS file, building index...")
+        index = build_index(data)
+
+    return index, data
 
 def find_relevant_verses(query, k=3):
-    embedding = genai.embed_content(
-        model="models/embedding-001",
-        content=query
-    )["embedding"]
-
+    idx, data_list = get_faiss_index()
+    embedding = genai.embed_content(model="models/embedding-001", content=query)["embedding"]
     query_embedding = np.array([embedding], dtype="float32")
-    distances, indices = index.search(query_embedding, k)
+    distances, indices = idx.search(query_embedding, k)
     gc.collect()
-    return [data[i] for i in indices[0]]
+    return [data_list[i] for i in indices[0]]
 
 # -------------------
 # Routes
@@ -89,7 +96,6 @@ def tech():
 
 @app.route("/ask", methods=["POST"])
 def ask():
-
     req = request.json
     name = req.get("name", "Friend")
     age = req.get("age", "unknown")
@@ -100,43 +106,41 @@ def ask():
     results = find_relevant_verses(query)
 
     prompt = f"""
-        You are Lord Krishna, giving guidance to {name}, who is {age} years old.
+    You are Lord Krishna, giving guidance to {name}, who is {age} years old.
 
-        {name}'s Question:
-        {query}
-        
-        Your task:
-        1. Provide a compassionate, mentor-like answer appropriate for a {age}-year-old.
-        2. Use all the three verses given and Whenever quoting verses:
-        - Wrap the Sanskrit verse in <b> tags.
-        - Wrap the translation in <b> tags as well.
-        - Provide an explanation after each verse.
-        3. Format the answer in paragraphs with spacing.
-        4. Integrate verses contextually within the answer.
-        5. At the end, optionally summarize the key points.
+    {name}'s Question:
+    {query}
+    
+    Your task:
+    1. Provide a compassionate, mentor-like answer appropriate for a {age}-year-old.
+    2. Use all the three verses given and Whenever quoting verses:
+    - Wrap the Sanskrit verse in <b> tags.
+    - Wrap the translation in <b> tags as well.
+    - Provide an explanation after each verse.
+    3. Format the answer in paragraphs with spacing.
+    4. Integrate verses contextually within the answer.
+    5. At the end, optionally summarize the key points.
 
-        Use a warm, divine, mentor tone.
-        Knowledge base to reference (relevant slokas from Bhagavad Gita):
-        {results}
+    Use a warm, divine, mentor tone.
+    Knowledge base to reference (relevant slokas from Bhagavad Gita):
+    {results}
 
-        IMPORTANT:
-        - MOST IMPORTANTLY , KEEP THE LANGUAGE VERY VERY SIMPLE WITH NO COMPLEX WORDS , ENGLISH , TELUGU AND HINDI so that everyone can understand , dont use complex words
-        - Output the response in **HTML format**.
-        - Do NOT use Markdown-style asterisks. Use <b> tags for bold text.
-        - Include Sanskrit and translation for every verse.
-        - Maintain spacing between slokas.
-        - Answer fully in {language}, go detailed and nicely.
-        - No need of bullet points or summaries. End with a divine closing statement like:
-          "I, Krishna, am always with you. Be strong."
+    IMPORTANT:
+    - KEEP THE LANGUAGE SIMPLE (English, Telugu, Hindi).
+    - Output the response in HTML format.
+    - Do NOT use Markdown-style asterisks.
+    - Include Sanskrit and translation for every verse.
+    - Maintain spacing between slokas.
+    - Answer fully in {language}, go detailed and nicely.
+    - End with a divine closing statement like:
+      "I, Krishna, am always with you. Be strong."
     """
 
-    if mode == "deep":
-        llm = get_next_model("gemini-2.5-pro")
-    else:
-        llm = get_next_model("gemini-2.5-flash")
-
+    llm_model = "gemini-2.5-pro" if mode == "deep" else "gemini-2.5-flash"
+    llm = get_next_model(llm_model)
     response = llm.generate_content(prompt)
     krishna_response = response.text
+
     if krishna_response.startswith("```html"):
         krishna_response = krishna_response[7:]
     if krishna_response.endswith("```"):
