@@ -41,7 +41,7 @@ def build_index(data_list):
     embeddings = np.array(embeddings, dtype="float32")
     idx = faiss.IndexFlatL2(embeddings.shape[1])
     idx.add(embeddings)
-    faiss.write_index(idx, "gita_index_gemini.faiss")
+    faiss.write_index(idx, "gita_index.faiss")
     return idx
 
 def get_faiss_index():
@@ -52,7 +52,7 @@ def get_faiss_index():
     with open("gita_verses.json", "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    faiss_path = "gita_index_gemini.faiss"
+    faiss_path = "gita_index.faiss"
 
     if os.path.exists(faiss_path):
         try:
@@ -96,62 +96,67 @@ def tech():
 
 @app.route("/ask", methods=["POST"])
 def ask():
-    req = request.json
-    name = req.get("name", "Friend")
-    age = req.get("age", "unknown")
-    query = req.get("query", "")
-    language = req.get("language", "English")
-    mode = req.get("mode", "normal")
+    try:
+        req = request.json
+        name = req.get("name", "Friend")
+        age = req.get("age", "unknown")
+        query = req.get("query", "")
+        language = req.get("language", "English")
+        mode = req.get("mode", "normal")
 
-    results = find_relevant_verses(query)
+        results = find_relevant_verses(query)
 
-    prompt = f"""
-    You are Lord Krishna, giving guidance to {name}, who is {age} years old.
+        prompt = f"""
+        You are Lord Krishna, giving guidance to {name}, who is {age} years old.
 
-    {name}'s Question:
-    {query}
-    
-    Your task:
-    1. Provide a compassionate, mentor-like answer appropriate for a {age}-year-old.
-    2. Use all the three verses given and Whenever quoting verses:
-    - Wrap the Sanskrit verse in <b> tags.
-    - Wrap the translation in <b> tags as well.
-    - Provide an explanation after each verse.
-    3. Format the answer in paragraphs with spacing.
-    4. Integrate verses contextually within the answer.
-    5. At the end, optionally summarize the key points.
+        {name}'s Question:
+        {query}
+        
+        Your task:
+        1. Provide a compassionate, mentor-like answer appropriate for a {age}-year-old.
+        2. Use all the three verses given and Whenever quoting verses:
+        - Wrap the Sanskrit verse in <b> tags.
+        - Wrap the translation in <b> tags as well.
+        - Provide an explanation after each verse.
+        3. Format the answer in paragraphs with spacing.
+        4. Integrate verses contextually within the answer.
+        5. At the end, optionally summarize the key points.
 
-    Use a warm, divine, mentor tone.
-    Knowledge base to reference (relevant slokas from Bhagavad Gita):
-    {results}
+        Use a warm, divine, mentor tone.
+        Knowledge base to reference (relevant slokas from Bhagavad Gita):
+        {results}
 
-    IMPORTANT:
-    - KEEP THE LANGUAGE SIMPLE (English, Telugu, Hindi).
-    - Output the response in HTML format.
-    - Do NOT use Markdown-style asterisks.
-    - Include Sanskrit and translation for every verse.
-    - Maintain spacing between slokas.
-    - Answer fully in {language}, go detailed and nicely.
-    - End with a divine closing statement like:
-      "I, Krishna, am always with you. Be strong."
-    """
+        IMPORTANT:
+        - KEEP THE LANGUAGE SIMPLE (English, Telugu, Hindi).
+        - Output the response in HTML format.
+        - Do NOT use Markdown-style asterisks.
+        - Include Sanskrit and translation for every verse.
+        - Maintain spacing between slokas.
+        - Answer fully in {language}, go detailed and nicely.
+        - End with a divine closing statement like:
+          "I, Krishna, am always with you. Be strong."
+        """
 
-    llm_model = "gemini-2.5-pro" if mode == "deep" else "gemini-2.5-flash"
-    llm = get_next_model(llm_model)
-    response = llm.generate_content(prompt)
-    krishna_response = response.text
+        llm_model = "gemini-2.5-pro" if mode == "deep" else "gemini-2.5-flash"
+        llm = get_next_model(llm_model)
+        response = llm.generate_content(prompt)
+        krishna_response = response.text
 
-    if krishna_response.startswith("```html"):
-        krishna_response = krishna_response[7:]
-    if krishna_response.endswith("```"):
-        krishna_response = krishna_response[:-3]
+        if krishna_response.startswith("```html"):
+            krishna_response = krishna_response[7:]
+        if krishna_response.endswith("```"):
+            krishna_response = krishna_response[:-3]
 
-    gc.collect()
+        gc.collect()
 
-    return jsonify({
-        "response": krishna_response,
-        "verses": results
-    })
+        return jsonify({
+            "response": krishna_response,
+            "verses": results
+        })
+
+    except Exception as e:
+        # Return JSON error to avoid frontend crash
+        return jsonify({"error": str(e)}), 500
 
 # -------------------
 # Run App
