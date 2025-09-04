@@ -16,13 +16,8 @@ app = Flask(__name__)
 load_dotenv()
 
 # -------------------
-# Load FAISS + Gita Data
+# Load API Keys for Gemini
 # -------------------
-index = faiss.read_index("gita_index.faiss")
-with open("gita_verses.json", "r", encoding="utf-8") as f:
-    data = json.load(f)
-
-
 api_keys_str = os.getenv("API_KEYS", "")
 API_KEYS = [k.strip() for k in api_keys_str.split(",") if k.strip()]
 if not API_KEYS:
@@ -31,12 +26,38 @@ key_cycle = itertools.cycle(API_KEYS)
 
 def get_next_model(model_name: str):
     api_key = next(key_cycle)
-    genai.configure(api_key=api_key)  # <-- Use rotating key instead of GOOGLE_API_KEY
+    genai.configure(api_key=api_key)
     return genai.GenerativeModel(model_name)
 
+# -------------------
+# Load Gita JSON + FAISS
+# -------------------
+with open("gita_verses.json", "r", encoding="utf-8") as f:
+    data = json.load(f)
+
+if os.path.exists("gita_index.faiss"):
+    try:
+        index = faiss.read_index("gita_index.faiss")
+        print("Loaded FAISS index from file ✅")
+    except Exception as e:
+        print("Error loading FAISS, rebuilding...", e)
+        texts = [d["english"] for d in data]
+        embeddings = [genai.embed_content(model="models/embedding-001", content=t)["embedding"] for t in texts]
+        embeddings = np.array(embeddings, dtype="float32")
+        index = faiss.IndexFlatL2(embeddings.shape[1])
+        index.add(embeddings)
+        faiss.write_index(index, "gita_index.faiss")
+else:
+    print("No FAISS file, building index...")
+    texts = [d["english"] for d in data]
+    embeddings = [genai.embed_content(model="models/embedding-001", content=t)["embedding"] for t in texts]
+    embeddings = np.array(embeddings, dtype="float32")
+    index = faiss.IndexFlatL2(embeddings.shape[1])
+    index.add(embeddings)
+    faiss.write_index(index, "gita_index.faiss")
 
 # -------------------
-# Utility: Search Verses with Gemini Embeddings
+# Utility: Search Verses
 # -------------------
 def find_relevant_verses(query, k=3):
     embedding = genai.embed_content(
@@ -46,9 +67,7 @@ def find_relevant_verses(query, k=3):
 
     query_embedding = np.array([embedding], dtype="float32")
     distances, indices = index.search(query_embedding, k)
-
     gc.collect()
-
     return [data[i] for i in indices[0]]
 
 # -------------------
@@ -72,7 +91,6 @@ def tech():
 
 @app.route("/ask", methods=["POST"])
 def ask():
-
     req = request.json
     name = req.get("name", "Friend")
     age = req.get("age", "unknown")
@@ -113,13 +131,8 @@ def ask():
           "I, Krishna, am always with you. Be strong."
     """
 
-    if mode == "deep":
-        llm = get_next_model("gemini-2.5-pro")
-    else:
-        llm = get_next_model("gemini-2.5-flash")
-
+    llm = get_next_model("gemini-2.5-pro" if mode=="deep" else "gemini-2.5-flash")
     response = llm.generate_content(prompt)
-
     krishna_response = response.text
     if krishna_response.startswith("```html"):
         krishna_response = krishna_response[7:]
@@ -137,5 +150,5 @@ def ask():
 # Run App
 # -------------------
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 7100))  # fallback for local
+    port = int(os.environ.get("PORT", 7100))
     app.run(host="0.0.0.0", port=port, debug=True)
