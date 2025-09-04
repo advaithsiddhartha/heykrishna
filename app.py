@@ -15,9 +15,11 @@ import gc
 app = Flask(__name__)
 load_dotenv()
 
-# -------------------
-# Load API Keys for Gemini
-# -------------------
+index = faiss.read_index("gita_index_gemini.faiss")
+with open("gita_verses.json", "r", encoding="utf-8") as f:
+    data = json.load(f)
+
+
 api_keys_str = os.getenv("API_KEYS", "")
 API_KEYS = [k.strip() for k in api_keys_str.split(",") if k.strip()]
 if not API_KEYS:
@@ -26,12 +28,10 @@ key_cycle = itertools.cycle(API_KEYS)
 
 def get_next_model(model_name: str):
     api_key = next(key_cycle)
-    genai.configure(api_key=api_key)
+    genai.configure(api_key=api_key)  # <-- Use rotating key instead of GOOGLE_API_KEY
     return genai.GenerativeModel(model_name)
 
-# -------------------
-# Load Gita JSON + FAISS
-# -------------------
+
 with open("gita_verses.json", "r", encoding="utf-8") as f:
     data = json.load(f)
 
@@ -56,9 +56,7 @@ else:
     index.add(embeddings)
     faiss.write_index(index, "gita_index.faiss")
 
-# -------------------
-# Utility: Search Verses
-# -------------------
+
 def find_relevant_verses(query, k=3):
     embedding = genai.embed_content(
         model="models/embedding-001",
@@ -91,6 +89,7 @@ def tech():
 
 @app.route("/ask", methods=["POST"])
 def ask():
+
     req = request.json
     name = req.get("name", "Friend")
     age = req.get("age", "unknown")
@@ -131,7 +130,11 @@ def ask():
           "I, Krishna, am always with you. Be strong."
     """
 
-    llm = get_next_model("gemini-2.5-pro" if mode=="deep" else "gemini-2.5-flash")
+    if mode == "deep":
+        llm = get_next_model("gemini-2.5-pro")
+    else:
+        llm = get_next_model("gemini-2.5-flash")
+
     response = llm.generate_content(prompt)
     krishna_response = response.text
     if krishna_response.startswith("```html"):
